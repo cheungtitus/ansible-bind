@@ -3,12 +3,73 @@
 name: Run Ansible Molecule tests
 on: [workflow_dispatch]
 jobs:
-  run-tests:
+  run-molecule-tests:
+    env:
+      ansible-version: 2.9.9
     runs-on: ubuntu-latest
-    steps:    
+    steps:
       - name: Check out repo
         uses: actions/checkout@v2
         with:
           path: "${{ github.repository }}"
-      - name: Test Ansible roles with Molecule
-        uses: ./.github/actions/molecule-test
+      - name: Update OS
+        run: |
+          sudo apt update
+          sudo apt upgrade
+      - name: Install Packages
+        run: |
+          sudo apt install python
+          sudo rm -f /usr/bin/python
+          sudo ln -s /usr/bin/python3 /usr/bin/python
+          sudo apt install python3-pip
+          sudo apt install make
+          sudo pip3 install packaging          
+      - name: Install Ansible
+        run: |
+          wget https://releases.ansible.com/ansible/ansible-${{ ansible-version }}.tar.gz
+          tar xvfz ansible-${{ ansible-version }}.tar.gz
+          cd ansible-${{ ansible-version }}
+          sudo pip3 install -r requirements.txt
+          make
+          sudo make install
+      - name: Install Ansible Lint
+        run: |
+          sudo pip3 install ansible-lint
+      - name: Install Molecule
+        run: |
+          sudo pip3 install molecule
+          sudo pip3 install molecule[docker]
+      - name: Install Docker
+        run: |
+          sudo apt remove docker docker-engine docker.io containerd runc
+          sudo apt install \
+              apt-transport-https \
+              ca-certificates \
+              curl \
+              gnupg-agent \
+              software-properties-common
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+          sudo add-apt-repository \
+             "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+             $(lsb_release -cs) \
+             stable"
+          sudo apt update
+          sudo apt install docker-ce docker-ce-cli containerd.io
+          sudo apt upgrade
+          sudo service docker start
+      - name: Connect Docker Bridge Network To Outside
+        run: |
+          apt-get install bridge-utils
+          apt-get install net-tools
+          brctl addif docker0 eth0
+      - name: Test Playbook 'bind'
+        run: |
+          cd ${{ github.repository }}/roles/bind
+          molecule create
+          molecule converge -- --skip-tags sethostname,permit-port53
+          molecule verify
+      - name: Test Playbook 'cert'
+        run: |
+          cd ${{ github.repository }}/roles/cert          
+          molecule converge -- --skip-tags sethostname,permit-port53
+          molecule verify
